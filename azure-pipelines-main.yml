@@ -1,0 +1,71 @@
+trigger:
+- main
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  azureSubscription: 'Azure subscription 1 (a1473455-f01a-4afc-bafd-87af5d04d9f7)'
+  webAppName: 'movenmuse'
+  nodeVersion: '20.x'   # 先用 LTS；确认你的 App Service 支持再改 22.x
+
+steps:
+# 1) Node 版本
+- task: NodeTool@0
+  inputs:
+    versionSpec: $(nodeVersion)
+  displayName: 'Use Node $(nodeVersion)'
+
+# 2) Backend: 安装 & 构建
+- script: |
+    set -e
+    npm ci
+    npm run build
+  displayName: 'Backend: install & build'
+  workingDirectory: server
+
+# 3) Frontend: 安装 & 构建
+- script: |
+    set -e
+    npm ci
+    npm run build
+  displayName: 'Frontend: install & build'
+  workingDirectory: client
+  env:
+    NODE_OPTIONS: '--max-old-space-size=4096'
+
+# 4) 把前端产物拷进 server/public 作为静态文件
+# 如果你是 CRA，请把 SourceFolder 改成 client/build
+- task: CopyFiles@2
+  inputs:
+    SourceFolder: '$(System.DefaultWorkingDirectory)/client/dist'
+    Contents: '**'
+    TargetFolder: '$(System.DefaultWorkingDirectory)/server/public'
+    OverWrite: true
+  displayName: 'Copy frontend into server/public'
+
+# 5) 归档 server（排除无关文件，避免包太大/部署超时）
+- script: |
+    set -e
+    mkdir -p "$(Build.ArtifactStagingDirectory)"
+    cd server
+    zip -r "$(Build.ArtifactStagingDirectory)/app.zip" . \
+      -x "node_modules/*" "tests/*" "coverage/*" "*.log" ".env" ".env.*" ".git/*"
+  displayName: 'Archive app (zip, exclude node_modules/tests/logs)'
+
+# 6) 发布制品
+- publish: '$(Build.ArtifactStagingDirectory)/app.zip'
+  artifact: drop
+  displayName: 'Publish deployment artifact'
+
+# 7) 部署到 App Service（Run From Package）
+- task: AzureRmWebAppDeployment@4
+  inputs:
+    azureSubscription: $(azureSubscription)
+    appType: webAppLinux
+    WebAppName: $(webAppName)
+    packageForLinux: '$(Build.ArtifactStagingDirectory)/app.zip'
+    RuntimeStack: 'NODE|20-lts'    # 确认支持再改 'NODE|22'
+    StartupCommand: 'npm start'
+    deploymentMethod: 'runFromPackage'
+  displayName: 'Deploy to App Service (Run From Package)'
