@@ -5,34 +5,38 @@ pool:
   vmImage: ubuntu-latest
 
 variables:
-  azureSubscription: 'Azure subscription 1 (a1473455-f01a-4afc-bafd-87af5d04d9f7)'
-  webAppName: 'movenmuse'
-  nodeVersion: '22.x'
+  nodeVersion: '20.x'   # 先用 LTS；确认平台支持再升 22.x
 
 steps:
-# Use Node 22
+# 1) Node 版本
 - task: NodeTool@0
   inputs:
     versionSpec: $(nodeVersion)
   displayName: 'Use Node $(nodeVersion)'
 
-# Backend install + build
+# 2) Backend: 安装 & 构建
 - script: |
-    cd server
+    set -e
     npm ci
     npm run build
-  displayName: 'Backend: Install dependencies and build'
+  displayName: 'Backend: install & build'
+  workingDirectory: server
 
-# Frontend install + build
+# 3) Frontend: 安装 & 构建
 - script: |
-    cd client
+    set -e
     npm ci
     npm run build
-  displayName: 'Frontend: Install dependencies and build'
+  displayName: 'Frontend: install & build'
+  workingDirectory: client
+  env:
+    NODE_OPTIONS: '--max-old-space-size=4096'   # 大项目打包更稳（可选）
 
-# Run the unit tests
+# 4) Backend: 测试
 - script: |
-    cd server
-    npm install
+    set -e
+    npm ci
     npm test
-  displayName: 'Run tests'
+  displayName: 'Backend: test'
+  workingDirectory: server
+
